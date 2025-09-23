@@ -9,10 +9,13 @@ import matplotlib.cm as cm
 import streamlit as st
 import gspread
 from datetime import datetime
+import pytz 
 import urllib.parse as _u
 from textwrap import dedent
 import requests, time, json
 
+
+KST = pytz.timezone("Asia/Seoul")
 
 
 # OpenAI (가사 생성 옵션)
@@ -23,14 +26,32 @@ except Exception:
     OPENAI_AVAILABLE = False
 
 
-
-# 세션 상태 초기화
+# -----------------------------
+# 세션 상태
+# -----------------------------
 if "lyrics" not in st.session_state:
     st.session_state["lyrics"] = ""
 if "played" not in st.session_state:
     st.session_state["played"] = False
-if "start_time" not in st.session_state:   # 페이지 뷰 시작 시간
-    st.session_state["start_time"] = datetime.now()
+# start_time: KST aware로 강제
+if "start_time" not in st.session_state:
+    st.session_state["start_time"] = datetime.now(KST)
+else:
+    st_time = st.session_state["start_time"]
+    # 이전 세션에서 naive로 저장된 경우 보정
+    if getattr(st_time, "tzinfo", None) is None:
+        st.session_state["start_time"] = KST.localize(st_time)
+# 세션 시간대 계산
+hour = datetime.now(KST).hour  # ★ KST
+if 6 <= hour < 12:
+    session_time = "morning"
+elif 12 <= hour < 18:
+    session_time = "afternoon"
+elif 18 <= hour < 24:
+    session_time = "evening"
+else:
+    session_time = "night"
+
 if "button_clicks" not in st.session_state:
     st.session_state["button_clicks"] = 0
 if "visit_count" not in st.session_state:
@@ -40,16 +61,7 @@ else:
 if "sharing" not in st.session_state:
     st.session_state["sharing"] = False
 
-# 세션 시간대 계산 (제출/공유 공통 사용)
-hour = datetime.now().hour
-if 6 <= hour < 12:
-    session_time = "morning"
-elif 12 <= hour < 18:
-    session_time = "afternoon"
-elif 18 <= hour < 24:
-    session_time = "evening"
-else:
-    session_time = "night"
+
 # 다운로드 여부
 if "downloaded" not in st.session_state:
     st.session_state["downloaded"] = False
@@ -131,7 +143,7 @@ def append_row_to_sheet(sheet, payload: dict):
     """Google Sheet에 한 행 추가. HEADERS 순서와 1:1 매칭"""
     row = [
         # 1~12
-        datetime.now().isoformat(),
+        datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),
         payload.get("user_id",""),
         payload["mbti"],
         ",".join(payload["keywords"]),
@@ -552,13 +564,7 @@ def mbti_to_freq(mbti: str):
     }
     return base.get(mbti, 440.0)
 
-# -----------------------------
-# 세션 상태
-# -----------------------------
-if "lyrics" not in st.session_state:
-    st.session_state["lyrics"] = ""
-if "played" not in st.session_state:
-    st.session_state["played"] = False
+
 
 # -----------------------------
 # 사이드바
@@ -751,7 +757,12 @@ if mode == "가사 생성":
 
 
         if st.button("📨 제출(데이터 저장)"):
-            page_view_time = (datetime.now() - st.session_state["start_time"]).seconds
+            now_kst = datetime.now(KST)
+            start = st.session_state["start_time"]
+            if getattr(start, "tzinfo", None) is None:
+                start = KST.localize(start)
+
+            page_view_time = int((now_kst - start).total_seconds())
             payload = {
                 "user_id": user_id.strip(),
                 "mbti": mbti,
@@ -795,6 +806,10 @@ if mode == "가사 생성":
                 st.error(f"저장 실패: {e}")
 
         if st.button("🔗 공유하기"):
+            now_kst = datetime.now(KST)
+            start = st.session_state["start_time"]
+            if getattr(start, "tzinfo", None) is None:
+                start = KST.localize(start)
             st.session_state["sharing"] = True
             payload = {
                 "user_id": user_id.strip(),
@@ -817,7 +832,7 @@ if mode == "가사 생성":
                 "burnout_score": bo_score,
                 "burnout_level": bo_level,
                 "would_return": bool(would_return),
-                "page_view_time": (datetime.now() - st.session_state["start_time"]).seconds,
+                "page_view_time": int((now_kst - start).total_seconds()),
                 "button_clicks": st.session_state["button_clicks"],
                 "revisit": st.session_state["visit_count"] > 1,
                 "sharing": True,
