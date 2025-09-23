@@ -882,54 +882,54 @@ if mode == "가사 생성":
 
 
 
-        if st.button("📨 제출(데이터 저장)"):
-            now_kst = datetime.now(KST)
-            start = st.session_state["start_time"]
-            if getattr(start, "tzinfo", None) is None:
-                start = KST.localize(start)
+        # if st.button("📨 제출(데이터 저장)"):
+        #     now_kst = datetime.now(KST)
+        #     start = st.session_state["start_time"]
+        #     if getattr(start, "tzinfo", None) is None:
+        #         start = KST.localize(start)
 
-            page_view_time = int((now_kst - start).total_seconds())
-            payload = {
-                "user_id": user_id.strip(),
-                "mbti": mbti,
-                "keywords": keywords,
-                "joy": int(joy),
-                "energy": int(energy),
-                "personal_line": personal_line.strip(),
-                "satisfaction": int(satisfaction),
-                "mbti_match": bool(mbti_match),
-                "played": bool(st.session_state["played"]),
-                "lyrics_lines": len(st.session_state["lyrics"].splitlines()),
-                "lyrics": st.session_state["lyrics"],
-                # --- burnout 추가 ---
-                "bo_exhaust": int(bo_exhaust),
-                "bo_cynicism": int(bo_cynic),
-                "bo_burden": int(bo_burden),
-                "bo_anger": int(bo_anger),
-                "bo_fatigue": int(bo_fatigue),
-                "bo_sleep": int(bo_sleep),
-                "burnout_score": bo_score,
-                "burnout_level": bo_level,
-                # --- 만족도 추가 ---
-                # "nps": int(nps),
-                "would_return": bool(would_return),
-                "page_view_time": page_view_time,
-                "button_clicks": st.session_state["button_clicks"],
-                "revisit": st.session_state["visit_count"] > 1,
-                "sharing": st.session_state["sharing"],
-                "session_time": session_time,
-                # --- 다운로드 추적 추가 ---
-                "downloaded": bool(st.session_state.get("downloaded", False)),
-                "download_clicks": int(st.session_state.get("download_clicks", 0)),
-                "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
-                "vocal_gender": vocal_gender,
-            }
-            try:
-                append_row_to_sheet(sheet, payload)
-                st.success("제출 완료! Google Sheets에 저장되었습니다.")
-                st.session_state["played"] = False
-            except Exception as e:
-                st.error(f"저장 실패: {e}")
+        #     page_view_time = int((now_kst - start).total_seconds())
+        #     payload = {
+        #         "user_id": user_id.strip(),
+        #         "mbti": mbti,
+        #         "keywords": keywords,
+        #         "joy": int(joy),
+        #         "energy": int(energy),
+        #         "personal_line": personal_line.strip(),
+        #         "satisfaction": int(satisfaction),
+        #         "mbti_match": bool(mbti_match),
+        #         "played": bool(st.session_state["played"]),
+        #         "lyrics_lines": len(st.session_state["lyrics"].splitlines()),
+        #         "lyrics": st.session_state["lyrics"],
+        #         # --- burnout 추가 ---
+        #         "bo_exhaust": int(bo_exhaust),
+        #         "bo_cynicism": int(bo_cynic),
+        #         "bo_burden": int(bo_burden),
+        #         "bo_anger": int(bo_anger),
+        #         "bo_fatigue": int(bo_fatigue),
+        #         "bo_sleep": int(bo_sleep),
+        #         "burnout_score": bo_score,
+        #         "burnout_level": bo_level,
+        #         # --- 만족도 추가 ---
+        #         # "nps": int(nps),
+        #         "would_return": bool(would_return),
+        #         "page_view_time": page_view_time,
+        #         "button_clicks": st.session_state["button_clicks"],
+        #         "revisit": st.session_state["visit_count"] > 1,
+        #         "sharing": st.session_state["sharing"],
+        #         "session_time": session_time,
+        #         # --- 다운로드 추적 추가 ---
+        #         "downloaded": bool(st.session_state.get("downloaded", False)),
+        #         "download_clicks": int(st.session_state.get("download_clicks", 0)),
+        #         "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
+        #         "vocal_gender": vocal_gender,
+        #     }
+        #     try:
+        #         append_row_to_sheet(sheet, payload)
+        #         st.success("제출 완료! Google Sheets에 저장되었습니다.")
+        #         st.session_state["played"] = False
+        #     except Exception as e:
+        #         st.error(f"저장 실패: {e}")
         #공유버튼
         if st.button("🔗 공유하기"):
             # 1) 곡 정보 꺼내기 (없으면 안내)
@@ -986,7 +986,6 @@ if mode == "가사 생성":
                     "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
                     "vocal_gender": vocal_gender,
                 }
-                append_row_to_sheet(sheet, payload)
 
                 # 4) 공유 UI (링크만 표시 / 복사 & 시스템 공유 버튼)
                 html = f"""
