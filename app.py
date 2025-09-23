@@ -8,21 +8,6 @@ import streamlit as st
 import gspread
 from datetime import datetime
 
-# Google Auth (secrets 우선, 없으면 json 파일 사용)
-USE_SECRETS = False
-try:
-    from google.oauth2.service_account import Credentials  # secrets 방식
-    if "gcp_service_account" in st.secrets:
-        USE_SECRETS = True
-except Exception:
-    USE_SECRETS = False
-
-# oauth2client (json 파일 방식)
-try:
-    from oauth2client.service_account import ServiceAccountCredentials
-    OAUTH2CLIENT_AVAILABLE = True
-except Exception:
-    OAUTH2CLIENT_AVAILABLE = False
 
 # OpenAI (가사 생성 옵션)
 try:
@@ -72,38 +57,25 @@ def mbti_style(mbti: str):
 HEADERS = ["timestamp","user_id","mbti","keywords","joy","energy","personal_line",
            "satisfaction","mbti_match","played","lyrics_lines","lyrics"]
 
+
 @st.cache_resource
 def connect_gsheet(sheet_name: str):
-    """secrets.toml이 있으면 google-auth, 없으면 json 파일(oauth2client) 사용."""
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-
-    # 1. Streamlit secrets 사용
-    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-        creds = Credentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]), scopes=scopes
+    # 1) secrets 필수 체크
+    if "gcp_service_account" not in st.secrets:
+        raise RuntimeError(
+            "gcp_service_account 시크릿이 없습니다. Streamlit Cloud > Settings > Secrets 에 서비스 계정 JSON을 TOML로 넣어주세요."
         )
-        client = gspread.authorize(creds)
 
-    # 2. 로컬 json 키 사용 (python app.py 같은 경우)
-    else:
-        if not OAUTH2CLIENT_AVAILABLE:
-            raise RuntimeError("oauth2client가 설치되지 않았어요. pip install oauth2client 또는 secrets 설정을 사용하세요.")
-        json_path = "gcp_service_key.json"
-        if not os.path.exists(json_path):
-            raise FileNotFoundError("gcp_service_key.json 파일을 찾을 수 없습니다 (앱 폴더에 두세요).")
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(json_path, scope)
-        client = gspread.authorize(creds)
+    # 2) gspread + google-auth로 연결
+    try:
+        gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
+        sh = gc.open(sheet_name)
+        return sh.sheet1
+    except Exception as e:
+        # 앱이 통째로 죽지 않도록 메시지 표기
+        st.error(f"Google Sheets 연결 실패: {e}")
+        raise
 
-    sheet = client.open(sheet_name).sheet1
-    # 헤더 보장
-    values = sheet.get_all_values()
-    if not values:
-        sheet.append_row(HEADERS, value_input_option="USER_ENTERED")
-    return sheet
 
 
 
