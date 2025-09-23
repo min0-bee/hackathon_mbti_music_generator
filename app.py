@@ -4,6 +4,8 @@ from io import BytesIO
 import wave
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import streamlit as st
 import gspread
 from datetime import datetime
@@ -54,8 +56,14 @@ def mbti_style(mbti: str):
 # -----------------------------
 # Google Sheets 연결
 # -----------------------------
-HEADERS = ["timestamp","user_id","mbti","keywords","joy","energy","personal_line",
-           "satisfaction","mbti_match","played","lyrics_lines","lyrics"]
+HEADERS = [
+  "timestamp","user_id","mbti","keywords","joy","energy","personal_line",
+  "satisfaction","mbti_match","played","lyrics_lines","lyrics",
+  # --- new: burnout light + post satisfaction ---
+  "bo_exhaust","bo_cynicism","bo_burden","bo_anger","bo_fatigue","bo_sleep",  
+  "burnout_score","burnout_level",              # 합계, 'low/moderate/high'
+  "would_return"                          # 0~10, TRUE/FALSE
+]
 
 
 @st.cache_resource
@@ -77,8 +85,6 @@ def connect_gsheet(sheet_name: str):
         raise
 
 
-
-
 SHEET_NAME = "mbti_song_data"  # 너의 구글시트 이름
 sheet = connect_gsheet(SHEET_NAME)
 
@@ -97,8 +103,56 @@ def append_row_to_sheet(sheet, payload: dict):
         payload["played"],
         payload["lyrics_lines"],
         payload["lyrics"],
+
+        # --- burnout answers ---
+        payload["bo_exhaust"],
+        payload["bo_cynicism"],
+        payload["bo_burden"],
+        payload["bo_anger"],
+        payload["bo_fatigue"],
+        payload["bo_sleep"],
+
+        # --- burnout summary ---
+        payload["burnout_score"],
+        payload["burnout_level"],
+
+        # --- satisfaction after ---
+        # payload["nps"],
+        payload["would_return"],
     ]
     sheet.append_row(row, value_input_option="USER_ENTERED")
+
+
+
+
+# -----------------------------
+# 번아웃 점수
+# -----------------------------
+def burnout_level(score: int, max_score: int):
+    # 6문항 × 1~5점 = 6~30점
+    if max_score == 30:
+        if score >= 20:
+            return "high"
+        elif score >= 10:
+            return "moderate"
+        else:
+            return "low"
+    # fallback (기타 문항 수일 때)
+    pct = score / max_score
+    if pct >= 0.75:
+        return "high"
+    elif pct >= 0.5:
+        return "moderate"
+    return "low"
+
+def burnout_feedback(level: str) -> str:
+    if level == "high":
+        return "🌧️ 비 : 많이 지쳐 계시네요. 🛑 지금은 잠시 멈추고 쉼이 필요합니다. 음악을 같이 들어볼까요?"
+    elif level == "moderate":
+        return "🌫️ 안개 : 나쁘지 않습니다. 하지만 번아웃의 신호가 보입니다. ⚖️ 잠깐의 휴식과 전환이 도움이 될 거예요."
+    else:  # low
+        return "☀️ 맑음 : 컨디션이 비교적 안정적이시네요. 🌿 음악으로 지금의 에너지를 더 채워보세요!"
+
 
 # -----------------------------
 # LLM 프롬프트/폴백
@@ -201,7 +255,10 @@ with st.sidebar:
 # -----------------------------
 # 본문: 두 모드
 # -----------------------------
+
 if mode == "가사 생성":
+
+
     col1, col2 = st.columns(2)
     with col1:
         mbti = st.selectbox("MBTI 선택", MBTI_OPTIONS, index=4)
@@ -209,15 +266,48 @@ if mode == "가사 생성":
         style = mbti_style(mbti)
         st.write(f"**자동 장르 제안:** {style['genre']} / **BPM 느낌:** {style['tempo']}")
 
-    keyword_options = ["겨울","여름밤","창가","외로움","설렘","도전","퇴근길","봄비","새벽","바다"]
+    keyword_options = [
+        # 기존 키워드
+        "봄","여름밤","가을","겨울","창가","외로움","설렘","도전","퇴근길","봄비","새벽","바다",
+        
+        # 계절/풍경 관련
+        "첫눈","단풍길","안개","별빛","노을","장마",
+        
+        # 시간/장소 관련
+        "골목길","광주","지하철역","카페","밤하늘","캠핑장","내 방",
+        
+        # 감정/상태 관련
+        "그리움","설원","추억","기다림","위로","자유","슬픔","행복",
+        
+        # 분위기/상징 관련
+        "촛불","낙엽","파도","바람","흔적"
+    ]
     keywords = st.multiselect("키워드 선택 (최대 3개 권장)", keyword_options)
-    personal_line = st.text_input("오늘의 기분/한 줄 메모", placeholder="예) 친구들이랑 바닷가에서 웃었어")
+    personal_line = st.text_input("오늘의 기분/한 줄 메모", placeholder="예) 친구들이랑 바닷가에 가서 행복한 시간을 보냈어.")
 
     c3, c4 = st.columns(2)
     with c3:
         joy = st.slider("기쁨(%)", 0, 100, 60)
     with c4:
         energy = st.slider("에너지(%)", 0, 100, 50)
+
+    with st.expander("🧪 가벼운 번아웃 체크 (1분)", expanded=True):
+        st.caption("참고: 의료 진단이 아닌 일상 컨디션 체크입니다.")
+        options = [1, 2, 3, 4, 5]
+
+        bo_exhaust   = st.radio("요즘 정서적 피로를 자주 느낀다", options, index=0, horizontal=True)
+        bo_cynic     = st.radio("일/사람에 냉소적이거나 거리감이 느껴진다", options, index=0, horizontal=True)
+        bo_burden    = st.radio("일하는 것에 심적 부담과 자신의 한계를 느낀다.", options, index=0, horizontal=True)
+        bo_anger     = st.radio("이전에는 그냥 넘어가던 일에도 화를 참을 수 없다.", options, index=0, horizontal=True)
+        bo_fatigue   = st.radio("만성피로, 감기나 두통, 요통, 소화불량이 늘었다.", options, index=0, horizontal=True)
+        bo_sleep     = st.radio("충분한 시간의 잠을 자도 계속 피곤함을 느낀다.", options, index=0, horizontal=True)
+
+        bo_answers = [bo_exhaust, bo_cynic, bo_burden, bo_anger, bo_fatigue, bo_sleep]
+        bo_score = int(sum(bo_answers))
+        bo_level = burnout_level(bo_score, max_score=5 * len(bo_answers))
+
+        
+
 
     # 가사 생성
     if st.button("🎤 가사 생성하기", type="primary"):
@@ -237,6 +327,8 @@ if mode == "가사 생성":
 
     # 결과 영역
     if st.session_state["lyrics"]:
+        st.subheader("컨디션 지수")
+        st.info(burnout_feedback(bo_level))
         st.subheader("가사")
         st.text_area("생성된 가사", st.session_state["lyrics"], height=220)
 
@@ -251,9 +343,19 @@ if mode == "가사 생성":
             st.caption("※ 재생 버튼 클릭이 데이터로 기록됩니다.")
 
         # 피드백 수집
-        mbti_match = st.checkbox("내 MBTI랑 잘 맞았어요")
-        satisfaction = st.slider("만족도 (1~5)", 1, 5, 3)
-        user_id = st.text_input("닉네임/학번 (선택)", value="")
+        user_id     = st.text_input("닉네임(선택)", value="")
+        mbti_match  = st.checkbox("내 MBTI랑 잘 맞았어요")
+        # 만족도/재방문 의향
+        # nps = st.slider("추천 의향 (0~10)", 0, 10, 7)
+        would_return = st.checkbox("다시 이용하고 싶어요")
+        st.subheader("음악이 나와 어울리나요?")
+        satisfaction = st.slider("만족도 (1~5)", 1, 5, 3)  # ← 범위 1~5로 통일
+
+        # 번아웃 점수/레벨 (6문항 합산)
+        bo_score = int(bo_exhaust + bo_cynic + bo_burden + bo_anger + bo_fatigue + bo_sleep)
+        bo_level = burnout_level(bo_score, max_score=5 * 6)  # ← 6문항 × 5점 만점
+
+
 
         if st.button("📨 제출(데이터 저장)"):
             payload = {
@@ -268,14 +370,26 @@ if mode == "가사 생성":
                 "played": bool(st.session_state["played"]),
                 "lyrics_lines": len(st.session_state["lyrics"].splitlines()),
                 "lyrics": st.session_state["lyrics"],
+                # --- burnout 추가 ---
+                "bo_exhaust": int(bo_exhaust),
+                "bo_cynicism": int(bo_cynic),
+                "bo_burden": int(bo_burden),
+                "bo_anger": int(bo_anger),
+                "bo_fatigue": int(bo_fatigue),
+                "bo_sleep": int(bo_sleep),
+                "burnout_score": bo_score,
+                "burnout_level": bo_level,
+                # --- 만족도 추가 ---
+                # "nps": int(nps),
+                "would_return": bool(would_return),
             }
             try:
                 append_row_to_sheet(sheet, payload)
                 st.success("제출 완료! Google Sheets에 저장되었습니다.")
-                # 다음 사용자를 위해 재생 상태만 초기화(가사는 남겨둠)
                 st.session_state["played"] = False
             except Exception as e:
                 st.error(f"저장 실패: {e}")
+
 
     with st.expander("프롬프트 보기", expanded=False):
         # 마지막 프롬프트 미리보기 (생성 이전엔 예시 표시)
@@ -296,8 +410,79 @@ elif mode == "대시보드":
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
 
-            st.subheader("최근 데이터 (Latest rows)")
-            st.dataframe(df.tail())
+            # --- 불안정도(번아웃 강도) 계산 & 시각화 --------------------
+            # burnout_score가 있으면 사용, 없으면 개별 문항 합산으로 보정
+            MAX_SCORE = 30  # 6문항 × 5점
+            MIN_SCORE = 6   # 6문항 × 1점
+            bo_cols = ["bo_exhaust","bo_cynicism","bo_burden","bo_anger","bo_fatigue","bo_sleep"]
+
+            # 숫자형 변환(추가)
+            if "burnout_score" in df.columns:
+                df["burnout_score"] = pd.to_numeric(df["burnout_score"], errors="coerce")
+            for c in bo_cols:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+
+            # 보정 계산: burnout_score가 없거나 전부 NaN이면 개별 문항 합산
+            if "burnout_score" not in df.columns or df["burnout_score"].isna().all():
+                if set(bo_cols).issubset(df.columns):
+                    df["burnout_score"] = df[bo_cols].sum(axis=1)
+
+            if "burnout_score" in df.columns and df["burnout_score"].notna().any():
+                # anxiety_pct 산출 (0~100)
+                df["anxiety_pct"] = (
+                    ((df["burnout_score"] - MIN_SCORE) / (MAX_SCORE - MIN_SCORE)) * 100
+                ).clip(0, 100)
+
+                st.subheader("불안정도(Anxiety Index)")
+                avg_anx = float(df["anxiety_pct"].mean())
+                st.metric("평균 불안정도", f"{avg_anx:.1f}%")
+                st.progress(int(round(avg_anx)))
+
+                # MBTI별 번아웃 수준 분포 (파이 차트: 평균 번아웃 점수 비율)
+                st.subheader("MBTI별 번아웃 수준 분포")
+                if "mbti" in df.columns:
+                    burnout_by_mbti = (
+                        df.dropna(subset=["burnout_score"])
+                        .groupby("mbti")["burnout_score"]
+                        .mean()
+                        .sort_values()
+                    )
+                    if not burnout_by_mbti.empty:
+                        # 팔레트 색상 생성 (예: Set3)
+                        colors = cm.Set3(np.linspace(0, 1, len(burnout_by_mbti)))
+
+                        fig, ax = plt.subplots()
+                        ax.pie(
+                            burnout_by_mbti.values,
+                            labels=burnout_by_mbti.index,
+                            autopct="%1.1f%%",
+                            startangle=90,
+                            counterclock=False,
+                            colors=colors
+                        )
+                        st.pyplot(fig)
+                    else:
+                        st.caption("MBTI별 번아웃 평균을 계산할 데이터가 부족합니다.")
+                else:
+                    st.caption("MBTI 컬럼이 없어 MBTI별 분포를 표시할 수 없습니다.")
+
+                # MBTI별 평균 불안정도 (막대 차트)
+                if "mbti" in df.columns:
+                    st.caption("MBTI별 평균 불안정도")
+                    mbti_avg = (
+                        df.dropna(subset=["anxiety_pct"])
+                        .groupby("mbti")["anxiety_pct"]
+                        .mean()
+                        .sort_values(ascending=False)
+                    )
+                    if not mbti_avg.empty:
+                        st.bar_chart(mbti_avg)
+                    else:
+                        st.caption("불안정도 평균을 계산할 데이터가 부족합니다.")
+            else:
+                st.caption("불안정도 데이터를 계산할 수 없습니다.")
+            # ------------------------------------------------------------
 
             st.subheader("MBTI별 평균 만족도 (Average Satisfaction)")
             st.bar_chart(df.groupby("mbti")["satisfaction"].mean())
@@ -320,8 +505,12 @@ elif mode == "대시보드":
                 st.subheader("MBTI 매칭 비율 (Matched rate)")
                 match_rate = (df["mbti_match"].astype(str).str.lower().isin(["true","1"])).mean()
                 st.write(f"{match_rate*100:.1f}%")
+            
+            st.subheader("최근 데이터 (Latest rows)")
+            st.dataframe(df.tail())
     except Exception as e:
         st.error(f"대시보드를 불러오지 못했어요: {e}")
+
 
 # # (선택) 통신 테스트
 # with st.expander("🔧 Google Sheets 통신 테스트", expanded=False):
