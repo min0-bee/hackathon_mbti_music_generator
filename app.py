@@ -50,6 +50,12 @@ elif 18 <= hour < 24:
     session_time = "evening"
 else:
     session_time = "night"
+# 다운로드 여부
+if "downloaded" not in st.session_state:
+    st.session_state["downloaded"] = False
+if "download_clicks" not in st.session_state:
+    st.session_state["download_clicks"] = 0
+
 
 # -----------------------------
 # 기본 설정
@@ -95,7 +101,7 @@ HEADERS = [
   # --- new: burnout light + post satisfaction ---
   "bo_exhaust","bo_cynicism","bo_burden","bo_anger","bo_fatigue","bo_sleep",  
   "burnout_score","burnout_level",              # 합계, 'low/moderate/high'
-  "would_return", "page_view_time","button_clicks","revisit","sharing","session_time"                          # 0~10, TRUE/FALSE
+  "would_return", "page_view_time","button_clicks","revisit","sharing","session_time","downloaded","download_clicks","audio_size_bytes"                          # 0~10, TRUE/FALSE
 ]
 
 
@@ -157,6 +163,9 @@ def append_row_to_sheet(sheet, payload: dict):
         payload["revisit"],
         payload["sharing"],
         payload["session_time"],
+        payload.get("downloaded", False),
+        payload.get("download_clicks", 0),
+        payload.get("audio_size_bytes", 0),
     ]
     sheet.append_row(row, value_input_option="USER_ENTERED")
 
@@ -666,24 +675,41 @@ if mode == "가사 생성":
                 if st.session_state.get("cover_url"):
                     st.image(st.session_state["cover_url"], caption="Cover Art", use_container_width=True)
                 st.caption("※ Suno AI가 생성한 음악입니다.")
-                # 생성 다운로드
-                # 🔽 MP3 다운로드 버튼 (audio_url로 바로 바이트 받아서 내려줌)
+
+                # MP3 바이트 준비
                 try:
                     if "audio_bytes" not in st.session_state:
                         r = requests.get(url, timeout=120)
                         r.raise_for_status()
                         st.session_state["audio_bytes"] = r.content
-                    fname = f"{st.session_state.get('song_title','MBTI_Song')}.mp3".replace("/", "_")
-                    st.download_button("💾 MP3 다운로드",
-                                    data=st.session_state["audio_bytes"],
-                                    file_name=fname,
-                                    mime="audio/mpeg")
                 except Exception:
-                    # 아직 mp3가 준비 전이거나 네트워크 이슈면 링크라도 제공
-                    st.link_button("🔗 새 탭에서 열기", url)
+                    pass
 
+                # 파일명
+                fname = f"{st.session_state.get('song_title','MBTI_Song')}.mp3".replace("/", "_")
+
+                # 🔽 다운로드 버튼: 클릭 로깅 ★
+                clicked = False
+                if "audio_bytes" in st.session_state:
+                    clicked = st.download_button(
+                        "💾 MP3 다운로드",
+                        data=st.session_state["audio_bytes"],
+                        file_name=fname,
+                        mime="audio/mpeg"
+                    )
+                else:
+                    # 아직 mp3가 준비 전이거나 네트워크 이슈면 링크라도 제공
+                    clicked = st.link_button("🔗 새 탭에서 열기", url)  # ★ link_button도 True/False 반환
+
+                # 클릭 시 상태/통계 업데이트 ★
+                if clicked:
+                    st.session_state["download_clicks"] += 1
+                    st.session_state["downloaded"] = True
+                    # 사이즈 기록(있으면)
+                    st.session_state["audio_size_bytes"] = len(st.session_state.get("audio_bytes", b"") or b"")
             else:
                 st.warning("아직 음악 URL이 없습니다.")
+
 
 
         # 피드백 수집
@@ -731,7 +757,11 @@ if mode == "가사 생성":
                 "button_clicks": st.session_state["button_clicks"],
                 "revisit": st.session_state["visit_count"] > 1,
                 "sharing": st.session_state["sharing"],
-                "session_time": session_time
+                "session_time": session_time,
+                # --- 다운로드 추적 추가 ---
+                "downloaded": bool(st.session_state.get("downloaded", False)),
+                "download_clicks": int(st.session_state.get("download_clicks", 0)),
+                "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
             }
             try:
                 append_row_to_sheet(sheet, payload)
@@ -767,7 +797,11 @@ if mode == "가사 생성":
                 "button_clicks": st.session_state["button_clicks"],
                 "revisit": st.session_state["visit_count"] > 1,
                 "sharing": True,
-                "session_time": session_time
+                "session_time": session_time,
+                # --- 다운로드 추적 추가 ---
+                "downloaded": bool(st.session_state.get("downloaded", False)),
+                "download_clicks": int(st.session_state.get("download_clicks", 0)),
+                "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
             }
 
             append_row_to_sheet(sheet, payload)
