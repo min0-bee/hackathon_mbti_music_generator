@@ -402,10 +402,18 @@ def _build_suno_prompt(
     keywords: list[str] | None = None,
     joy: int = 50,
     energy: int = 50,
-    vocal_gender: str = "상관없음"   # ★ 추가
+    vocal_gender: str = "상관없음"
 ) -> tuple[str, str]:
-    ...
-    vocal_line = ""
+    # 1) 가사에서 제목/본문 추출
+    title, body = _extract_title_and_body(lyrics_text)
+
+    # 2) MBTI 기반 오디오 힌트
+    hints = _mbti_audio_hints(mbti)
+
+    # 3) 키워드 문자열
+    kwords = ", ".join(keywords or []) or "none"
+
+    # 4) 보컬 성별 설정 문구
     if vocal_gender == "남성":
         vocal_line = "Preferred Vocal: Male voice"
     elif vocal_gender == "여성":
@@ -413,6 +421,7 @@ def _build_suno_prompt(
     else:
         vocal_line = "Preferred Vocal: Any voice"
 
+    # 5) Suno 프롬프트 텍스트
     prompt = dedent(f"""
     [Song Title]
     {title}
@@ -439,6 +448,7 @@ def _build_suno_prompt(
     """).strip()
 
     return prompt, title
+
 
 
 
