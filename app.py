@@ -469,7 +469,7 @@ def generate_music_with_suno(lyrics: str, mbti: str, title: str = "") -> dict:
 
     # 2) 상태 폴링 (스트리밍 URL이 보통 더 빨리 준비됨)
     stream_url, audio_url, cover = None, None, None
-    for _ in range(40):  # 최대 약 2분 폴링(2s * 60)
+    for _ in range(70):  # 최대 약 2분 폴링(2s * 60)
         time.sleep(2)
         q = requests.get(
             "https://api.sunoapi.org/api/v1/generate/record-info",
