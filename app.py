@@ -986,6 +986,7 @@ if mode == "가사 생성":
                     "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
                     "vocal_gender": vocal_gender,
                 }
+                append_row_to_sheet(sheet, payload)
 
                 # 4) 공유 UI (링크만 표시 / 복사 & 시스템 공유 버튼)
                 html = f"""
