@@ -13,12 +13,14 @@ import urllib.parse as _u
 from textwrap import dedent
 
 
+
 # OpenAI (가사 생성 옵션)
 try:
     from openai import OpenAI
     OPENAI_AVAILABLE = True
 except Exception:
     OPENAI_AVAILABLE = False
+
 
 
 # 세션 상태 초기화
@@ -163,11 +165,6 @@ def append_row_to_sheet(sheet, payload: dict):
 # -----------------------------
 
 
-def build_share_link(user_id: str = "") -> str:
-    base = st.request.url.split("?")[0]
-    ref = user_id.strip() or "anon"
-    return f"{base}?ref={_u.quote(ref)}"
-
 def render_share_ui(user_id: str):
     share_url = build_share_link(user_id)
     st.session_state["sharing"] = True  # 로그용 플래그
@@ -247,6 +244,20 @@ def burnout_feedback(level: str) -> str:
 # -----------------------------
 # LLM 프롬프트/폴백
 # -----------------------------
+
+def get_openai_api_key() -> str:
+    # 1) Streamlit secrets 우선
+    try:
+        key = st.secrets["openai"]["api_key"]
+        if key:
+            return key.strip()
+    except Exception:
+        pass
+    # 2) 환경변수 fallback
+    return os.environ.get("OPENAI_API_KEY", "").strip()
+
+
+
 def make_prompt(mbti, keywords, personal_line, joy, energy):
     style = mbti_style(mbti)
     tpl = f"""
@@ -283,9 +294,9 @@ def fallback_lyrics(mbti, keywords, personal_line, joy, energy):
 def call_openai(prompt: str):
     if not OPENAI_AVAILABLE:
         raise RuntimeError("OpenAI SDK not available")
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    api_key = get_openai_api_key()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set")
+        raise RuntimeError("OPENAI_API_KEY not set (secrets 또는 env)")
     client = OpenAI(api_key=api_key)
     resp = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -294,6 +305,7 @@ def call_openai(prompt: str):
         top_p=0.9,
     )
     return resp.choices[0].message.content.strip()
+
 
 # -----------------------------
 # (모의) 음악 생성: 사인파
@@ -403,7 +415,7 @@ if mode == "가사 생성":
     if st.button("🎤 가사 생성하기", type="primary"):
         st.session_state["button_clicks"] += 1
         prompt = make_prompt(mbti, keywords, personal_line, joy, energy)
-        use_openai = OPENAI_AVAILABLE and bool(os.environ.get("OPENAI_API_KEY","").strip())
+        use_openai = OPENAI_AVAILABLE and bool(get_openai_api_key())
         with st.spinner("가사를 빚는 중..."):
             try:
                 if use_openai:
