@@ -101,7 +101,7 @@ HEADERS = [
   # --- new: burnout light + post satisfaction ---
   "bo_exhaust","bo_cynicism","bo_burden","bo_anger","bo_fatigue","bo_sleep",  
   "burnout_score","burnout_level",              # 합계, 'low/moderate/high'
-  "would_return", "page_view_time","button_clicks","revisit","sharing","session_time","downloaded","download_clicks","audio_size_bytes"                          # 0~10, TRUE/FALSE
+  "would_return", "page_view_time","button_clicks","revisit","sharing","session_time","downloaded","download_clicks","audio_size_bytes", "vocal_gender"                          # 0~10, TRUE/FALSE
 ]
 
 
@@ -166,6 +166,7 @@ def append_row_to_sheet(sheet, payload: dict):
         payload.get("downloaded", False),
         payload.get("download_clicks", 0),
         payload.get("audio_size_bytes", 0),
+        payload.get("vocal_gender", "상관없음"),
     ]
     sheet.append_row(row, value_input_option="USER_ENTERED")
 
@@ -400,16 +401,17 @@ def _build_suno_prompt(
     mbti: str,
     keywords: list[str] | None = None,
     joy: int = 50,
-    energy: int = 50
+    energy: int = 50,
+    vocal_gender: str = "상관없음"   # ★ 추가
 ) -> tuple[str, str]:
-
-    """
-    Suno로 보낼 'prompt' 문자열과 'title'을 구성해서 반환.
-    (Suno API payload의 prompt/title에 그대로 넣으면 됨)
-    """
-    title, body = _extract_title_and_body(lyrics_text)
-    hints = _mbti_audio_hints(mbti)
-    kwords = ", ".join(keywords or []) or "none"
+    ...
+    vocal_line = ""
+    if vocal_gender == "남성":
+        vocal_line = "Preferred Vocal: Male voice"
+    elif vocal_gender == "여성":
+        vocal_line = "Preferred Vocal: Female voice"
+    else:
+        vocal_line = "Preferred Vocal: Any voice"
 
     prompt = dedent(f"""
     [Song Title]
@@ -425,15 +427,12 @@ def _build_suno_prompt(
 
     [Structure]
     Keep sections in singing flow (Verse/Chorus/Bridge/Outro).
-    Keep melody and harmony cohesive with the lyrics mood and BPM.
-    Simple, memorable topline; avoid excessive runs.
 
     [Vocal]
-    Pop/indie-friendly lead vocal; natural phrasing; light reverb.
-    Korean lyrics; clear diction; avoid explicit content.
+    {vocal_line}; Pop/indie-friendly lead vocal; natural phrasing; light reverb.
 
     [Mixing]
-    Balanced mix; vocal forward but not harsh; gentle compression; soft limiter.
+    Balanced mix; vocal forward but not harsh.
 
     [Lyrics]
     {body}
@@ -442,7 +441,8 @@ def _build_suno_prompt(
     return prompt, title
 
 
-def generate_music_with_suno(lyrics: str, mbti: str, title: str = "") -> dict:
+
+def generate_music_with_suno(lyrics: str, mbti: str, title: str = "", vocal_gender: str = "상관없음") -> dict:
     """
     Suno API로 곡 생성 → taskId 폴링 → 재생 가능한 URL 반환.
     return 예시: {"stream_url": "...", "audio_url": "...", "cover": "..."}
@@ -452,7 +452,7 @@ def generate_music_with_suno(lyrics: str, mbti: str, title: str = "") -> dict:
         raise RuntimeError("SUNO_API_KEY 가 설정되어 있지 않습니다. secrets.toml의 [suno].api_key 를 확인하세요.")
 
     headers = {"Authorization": f"Bearer {api_key}"}
-    prompt = _build_suno_prompt(lyrics, mbti)
+    prompt = _build_suno_prompt(lyrics, mbti, vocal_gender=vocal_gender)
     payload = {
         "model": "V4_5", 
         # 최소 파라미터 (문서 기준)
@@ -591,6 +591,12 @@ if mode == "가사 생성":
     ]
     keywords = st.multiselect("키워드 선택 (최대 3개 권장)", keyword_options)
     personal_line = st.text_input("오늘의 기분/한 줄 메모", placeholder="예) 친구들이랑 바닷가에 가서 행복한 시간을 보냈어.")
+    vocal_gender = st.radio(
+        "보컬 성별 선택",
+        ["남성", "여성", "상관없음"],
+        index=2,
+        horizontal=True
+    )
 
     c3, c4 = st.columns(2)
     with c3:
@@ -659,7 +665,8 @@ if mode == "가사 생성":
                         out = generate_music_with_suno(
                             lyrics=st.session_state["lyrics"],
                             mbti=mbti,
-                            title=f"{mbti} - {mbti_style(mbti)['genre']}"
+                            title=f"{mbti} - {mbti_style(mbti)['genre']}",
+                            vocal_gender=vocal_gender
                         )
                         # 스트리밍이 먼저면 그걸 재생, 없으면 mp3
                         st.session_state["audio_url"] = out.get("stream_url") or out.get("audio_url")
@@ -675,6 +682,8 @@ if mode == "가사 생성":
                 if st.session_state.get("cover_url"):
                     st.image(st.session_state["cover_url"], caption="Cover Art", use_container_width=True)
                 st.caption("※ Suno AI가 생성한 음악입니다.")
+
+                st.warning("⚠️ 생성된 음악은 저장하지 않으면 사라져요. 음악이 마음에 드셨다면 지금 저장해주세요!")
 
                 # MP3 바이트 준비
                 try:
@@ -762,6 +771,7 @@ if mode == "가사 생성":
                 "downloaded": bool(st.session_state.get("downloaded", False)),
                 "download_clicks": int(st.session_state.get("download_clicks", 0)),
                 "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
+                "vocal_gender": vocal_gender,
             }
             try:
                 append_row_to_sheet(sheet, payload)
@@ -802,6 +812,7 @@ if mode == "가사 생성":
                 "downloaded": bool(st.session_state.get("downloaded", False)),
                 "download_clicks": int(st.session_state.get("download_clicks", 0)),
                 "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
+                "vocal_gender": vocal_gender,
             }
 
             append_row_to_sheet(sheet, payload)
