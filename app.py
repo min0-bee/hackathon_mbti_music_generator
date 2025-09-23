@@ -452,12 +452,16 @@ def generate_music_with_suno(lyrics: str, mbti: str, title: str = "", vocal_gend
         raise RuntimeError("SUNO_API_KEY 가 설정되어 있지 않습니다. secrets.toml의 [suno].api_key 를 확인하세요.")
 
     headers = {"Authorization": f"Bearer {api_key}"}
-    prompt = _build_suno_prompt(lyrics, mbti, vocal_gender=vocal_gender)
+    prompt, extracted_title = _build_suno_prompt(
+        lyrics_text=lyrics,
+        mbti=mbti,
+        vocal_gender=vocal_gender
+    )
     payload = {
         "model": "V4_5", 
         # 최소 파라미터 (문서 기준)
         "prompt": prompt,
-        "title": title or f"{mbti} Song",
+        "title": title or extracted_title or f"{mbti} Song",
         # 태그에는 장르 위주로
         "tags": mbti_style(mbti)["genre"],
         # 커스텀 모드(가사/스타일 반영용)와 보컬 포함 기본값
