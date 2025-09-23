@@ -9,6 +9,8 @@ import matplotlib.cm as cm
 import streamlit as st
 import gspread
 from datetime import datetime
+import urllib.parse as _u
+from textwrap import dedent
 
 
 # OpenAI (가사 생성 옵션)
@@ -17,6 +19,34 @@ try:
     OPENAI_AVAILABLE = True
 except Exception:
     OPENAI_AVAILABLE = False
+
+
+# 세션 상태 초기화
+if "lyrics" not in st.session_state:
+    st.session_state["lyrics"] = ""
+if "played" not in st.session_state:
+    st.session_state["played"] = False
+if "start_time" not in st.session_state:   # 페이지 뷰 시작 시간
+    st.session_state["start_time"] = datetime.now()
+if "button_clicks" not in st.session_state:
+    st.session_state["button_clicks"] = 0
+if "visit_count" not in st.session_state:
+    st.session_state["visit_count"] = 1
+else:
+    st.session_state["visit_count"] += 1
+if "sharing" not in st.session_state:
+    st.session_state["sharing"] = False
+
+# 세션 시간대 계산 (제출/공유 공통 사용)
+hour = datetime.now().hour
+if 6 <= hour < 12:
+    session_time = "morning"
+elif 12 <= hour < 18:
+    session_time = "afternoon"
+elif 18 <= hour < 24:
+    session_time = "evening"
+else:
+    session_time = "night"
 
 # -----------------------------
 # 기본 설정
@@ -62,7 +92,7 @@ HEADERS = [
   # --- new: burnout light + post satisfaction ---
   "bo_exhaust","bo_cynicism","bo_burden","bo_anger","bo_fatigue","bo_sleep",  
   "burnout_score","burnout_level",              # 합계, 'low/moderate/high'
-  "would_return"                          # 0~10, TRUE/FALSE
+  "would_return", "page_view_time","button_clicks","revisit","sharing","session_time"                          # 0~10, TRUE/FALSE
 ]
 
 
@@ -89,8 +119,9 @@ SHEET_NAME = "mbti_song_data"  # 너의 구글시트 이름
 sheet = connect_gsheet(SHEET_NAME)
 
 def append_row_to_sheet(sheet, payload: dict):
-    """Google Sheet에 한 행 추가."""
+    """Google Sheet에 한 행 추가. HEADERS 순서와 1:1 매칭"""
     row = [
+        # 1~12
         datetime.now().isoformat(),
         payload.get("user_id",""),
         payload["mbti"],
@@ -104,25 +135,84 @@ def append_row_to_sheet(sheet, payload: dict):
         payload["lyrics_lines"],
         payload["lyrics"],
 
-        # --- burnout answers ---
+        # 13~20 (번아웃 관련)
         payload["bo_exhaust"],
         payload["bo_cynicism"],
         payload["bo_burden"],
         payload["bo_anger"],
         payload["bo_fatigue"],
         payload["bo_sleep"],
-
-        # --- burnout summary ---
         payload["burnout_score"],
         payload["burnout_level"],
 
-        # --- satisfaction after ---
-        # payload["nps"],
+        # 21 (would_return)
         payload["would_return"],
+
+        # 22~27 (신규 6개 지표: 필수!)
+        payload["page_view_time"],
+        payload["button_clicks"],
+        payload["revisit"],
+        payload["sharing"],
+        payload["session_time"],
     ]
     sheet.append_row(row, value_input_option="USER_ENTERED")
 
 
+# -----------------------------
+# share
+# -----------------------------
+
+
+def build_share_link(user_id: str = "") -> str:
+    base = st.request.url.split("?")[0]
+    ref = user_id.strip() or "anon"
+    return f"{base}?ref={_u.quote(ref)}"
+
+def render_share_ui(user_id: str):
+    share_url = build_share_link(user_id)
+    st.session_state["sharing"] = True  # 로그용 플래그
+
+    st.success("추천 링크가 준비됐어요. 복사해서 친구에게 보내보세요!")
+    st.text_input("추천 링크", value=share_url, disabled=True)
+
+    # Copy / WebShare (모바일) 둘 다 지원하는 작은 위젯
+    html = f"""
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button id="copyBtn">📋 링크 복사</button>
+      <button id="shareBtn">🔗 시스템 공유</button>
+      <span id="msg" style="margin-left:8px;color:gray;"></span>
+    </div>
+    <script>
+      const url = {share_url!r};
+      const msg = document.getElementById('msg');
+      document.getElementById('copyBtn').onclick = async () => {{
+        try {{
+          await navigator.clipboard.writeText(url);
+          msg.textContent = "복사됨!";
+        }} catch (e) {{
+          msg.textContent = "복사 실패… (수동 복사 이용)";
+        }}
+      }};
+      const shareBtn = document.getElementById('shareBtn');
+      if (!navigator.share) {{
+        shareBtn.style.display = 'none';
+      }} else {{
+        shareBtn.onclick = async () => {{
+          try {{
+            await navigator.share({{ title: "MBTI Song Generator", url }});
+          }} catch (e) {{}}
+        }};
+      }}
+    </script>
+    """
+    st.components.v1.html(html, height=60)
+
+
+def build_share_link(user_id: str = "") -> str:
+    # 배포 주소 (끝 슬래시는 제거)
+    base = "https://hackathonmbtimusicgenerator.streamlit.app"
+    ref = (user_id or "anon").strip()
+    return f"{base}?ref={_u.quote(ref)}"
 
 
 # -----------------------------
@@ -311,6 +401,7 @@ if mode == "가사 생성":
 
     # 가사 생성
     if st.button("🎤 가사 생성하기", type="primary"):
+        st.session_state["button_clicks"] += 1
         prompt = make_prompt(mbti, keywords, personal_line, joy, energy)
         use_openai = OPENAI_AVAILABLE and bool(os.environ.get("OPENAI_API_KEY","").strip())
         with st.spinner("가사를 빚는 중..."):
@@ -335,6 +426,7 @@ if mode == "가사 생성":
         st.subheader("Music (Demo)")
         if not st.session_state["played"]:
             if st.button("▶️ 음악 재생"):
+                st.session_state["button_clicks"] += 1
                 st.session_state["played"] = True
                 st.rerun()
         else:
@@ -358,6 +450,7 @@ if mode == "가사 생성":
 
 
         if st.button("📨 제출(데이터 저장)"):
+            page_view_time = (datetime.now() - st.session_state["start_time"]).seconds
             payload = {
                 "user_id": user_id.strip(),
                 "mbti": mbti,
@@ -382,6 +475,11 @@ if mode == "가사 생성":
                 # --- 만족도 추가 ---
                 # "nps": int(nps),
                 "would_return": bool(would_return),
+                "page_view_time": page_view_time,
+                "button_clicks": st.session_state["button_clicks"],
+                "revisit": st.session_state["visit_count"] > 1,
+                "sharing": st.session_state["sharing"],
+                "session_time": session_time
             }
             try:
                 append_row_to_sheet(sheet, payload)
@@ -390,25 +488,65 @@ if mode == "가사 생성":
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
+        if st.button("🔗 공유하기"):
+            st.session_state["sharing"] = True
+            payload = {
+                "user_id": user_id.strip(),
+                "mbti": mbti,
+                "keywords": keywords,
+                "joy": int(joy),
+                "energy": int(energy),
+                "personal_line": personal_line.strip(),
+                "satisfaction": int(satisfaction),
+                "mbti_match": bool(mbti_match),
+                "played": bool(st.session_state["played"]),
+                "lyrics_lines": len(st.session_state["lyrics"].splitlines()),
+                "lyrics": st.session_state["lyrics"],
+                "bo_exhaust": int(bo_exhaust),
+                "bo_cynicism": int(bo_cynic),
+                "bo_burden": int(bo_burden),
+                "bo_anger": int(bo_anger),
+                "bo_fatigue": int(bo_fatigue),
+                "bo_sleep": int(bo_sleep),
+                "burnout_score": bo_score,
+                "burnout_level": bo_level,
+                "would_return": bool(would_return),
+                "page_view_time": (datetime.now() - st.session_state["start_time"]).seconds,
+                "button_clicks": st.session_state["button_clicks"],
+                "revisit": st.session_state["visit_count"] > 1,
+                "sharing": True,
+                "session_time": session_time
+            }
 
-    with st.expander("프롬프트 보기", expanded=False):
-        # 마지막 프롬프트 미리보기 (생성 이전엔 예시 표시)
-        preview = make_prompt(mbti, keywords, personal_line, joy, energy)
-        st.code(preview, language="markdown")
+            append_row_to_sheet(sheet, payload)
+            render_share_ui(user_id)
+
+
+
+    # with st.expander("프롬프트 보기", expanded=False):
+    #     # 마지막 프롬프트 미리보기 (생성 이전엔 예시 표시)
+    #     preview = make_prompt(mbti, keywords, personal_line, joy, energy)
+    #     st.code(preview, language="markdown")
 
 elif mode == "대시보드":
     st.header("Dashboard (Live from Google Sheets)")
     try:
-        records = sheet.get_all_records()
+        records = sheet.get_all_records(expected_headers=HEADERS)
         if not records:
             st.info("아직 데이터가 없습니다.")
         else:
             df = pd.DataFrame(records)
 
             # 숫자형 변환
-            for col in ["joy","energy","satisfaction","lyrics_lines"]:
+            num_cols = [
+                "joy","energy","satisfaction","lyrics_lines",
+                "bo_exhaust","bo_cynicism","bo_burden","bo_anger","bo_fatigue","bo_sleep",
+                "burnout_score","page_view_time","button_clicks"
+            ]
+            for col in num_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
+
 
             # --- 불안정도(번아웃 강도) 계산 & 시각화 --------------------
             # burnout_score가 있으면 사용, 없으면 개별 문항 합산으로 보정
