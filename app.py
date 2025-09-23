@@ -645,7 +645,7 @@ if mode == "가사 생성":
         if not st.session_state.get("played"):
             if st.button("▶️ 음악 생성 & 재생", type="primary"):
                 st.session_state["button_clicks"] += 1
-                with st.spinner("Suno AI로 음악 생성 중... (스트리밍 준비까지 ~40초 예상)"):
+                with st.spinner("Suno AI로 음악 생성 중... (스트리밍 준비까지 1분 30초 예상)"):
                     try:
                         out = generate_music_with_suno(
                             lyrics=st.session_state["lyrics"],
