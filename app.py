@@ -59,7 +59,22 @@ if audio_url:
     if cover_url:
         st.image(cover_url, caption="Cover Art", use_container_width=True)
     st.info("이 링크는 생성된 음악의 임시 URL을 포함합니다. 시간이 지나면 만료될 수 있어요.")
-    st.stop()   # ← 여기서 멈추면 첫 화면(가사 생성)으로 안 내려감
+
+    # 구분선
+    st.markdown("---")
+
+    # 홈으로 이동(내 음악 생성하러 가기)
+    base_url = "https://hackathonmbtimusicgenerator.streamlit.app"
+    try:
+        st.link_button("🎧 내 음악 생성하러 가기", base_url)
+    except Exception:
+        # Streamlit 버전에 따라 link_button 미지원 시 대체
+        st.markdown(f"[🎧 내 음악 생성하러 가기]({base_url})")
+
+    st.stop()   # 공유 화면만 보여주고 종료
+
+
+
 
 
 # -----------------------------
@@ -570,6 +585,9 @@ def _build_suno_prompt(
     Instruments: {", ".join(hints['instruments'])}
     Mood: {", ".join(hints['mood'])}
     Keywords: {kwords}
+
+    → Use the above Keywords not only in the lyrics but also to inspire the overall **mood, sound design, and arrangement** of the track.
+
     Joy: {joy}%, Energy: {energy}%
 
     [Structure]
@@ -579,11 +597,12 @@ def _build_suno_prompt(
     {vocal_line}; Pop/indie-friendly lead vocal; natural phrasing; light reverb.
 
     [Mixing]
-    Balanced mix; vocal forward but not harsh.
+    Balanced mix; vocal forward but not harsh. Let the Keywords influence the ambience and instrumentation.
 
     [Lyrics]
     {body}
     """).strip()
+
 
     return prompt, title
 
@@ -729,10 +748,13 @@ if mode == "가사 생성":
         "골목길","광주","지하철역","카페","밤하늘","캠핑장","내 방",
         
         # 감정/상태 관련
-        "그리움","설원","추억","기다림","위로","자유","슬픔","행복",
+        "그리움","설원","추억","기다림","위로","자유","슬픔","행복","분노", "파워풀", "파괴", "불안","좌절","상실",
         
         # 분위기/상징 관련
         "촛불","낙엽","파도","바람","흔적"
+
+        # 스트레스 해소/발산 키워드
+        "해방","폭발","질주","고함","춤","파워업","광란","열광","불꽃"
     ]
     keywords = st.multiselect("키워드 선택 (최대 3개 권장)", keyword_options)
     personal_line = st.text_input("오늘의 기분/한 줄 메모", placeholder="예) 친구들이랑 바닷가에 가서 행복한 시간을 보냈어.")
@@ -931,6 +953,11 @@ if mode == "가사 생성":
         #     except Exception as e:
         #         st.error(f"저장 실패: {e}")
         #공유버튼
+        st.info(
+            "공유 버튼을 누르면 **생성한 음악을 친구에게 들려줄 수 있어요!**\n\n"
+            "또한 기능 개선을 위해 최소한의 사용 로그를 수집하고 있습니다."
+            "도움이 되셨다면 **공유 한 번이 사용료**라 생각하시고 응원 부탁드려요 🙏 (사용료 = 공유!)"
+        )  # ### NEW
         if st.button("🔗 공유하기"):
             # 1) 곡 정보 꺼내기 (없으면 안내)
             audio_url = st.session_state.get("audio_url", "")
