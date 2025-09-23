@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+venv/
+
+# Streamlit local secrets (절대 올리지 않기)
+.streamlit/
+
+# OS/IDE
+.DS_Store
+.vscode/
