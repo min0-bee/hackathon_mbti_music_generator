@@ -11,6 +11,7 @@ import gspread
 from datetime import datetime
 import urllib.parse as _u
 from textwrap import dedent
+import requests, time, json
 
 
 
@@ -261,20 +262,30 @@ def get_openai_api_key() -> str:
 def make_prompt(mbti, keywords, personal_line, joy, energy):
     style = mbti_style(mbti)
     tpl = f"""
-Context: 당신은 한국어 가사 작사가입니다.
-Task: 다음 조건을 충족하는 8줄의 한국어 가사를 작성하세요.
-- MBTI: {mbti}
-- 핵심특징(요약): 사용자는 "{mbti}"이며, 일반적으로 알려진 {mbti} 성향을 가사에 부드럽게 녹여 표현합니다.
-- 분위기/장르: {style['genre']}, 서정적, {style['tempo']} BPM 느낌
-- 포함할 키워드: {', '.join(keywords) if keywords else '없음'}
-- 사용자 한 줄 메모: {personal_line if personal_line.strip() else '없음'}
+Context: 당신은 퍼스널 작사가입니다.
+
+Task: 아래 조건을 바탕으로 한 **완성된 노래 가사**를 작성해주세요.
+- MBTI: {mbti} 사용자의 MBTI에 어울리는 가사여야함.
+- 분위기/장르: {style['genre']} / BPM: {style['tempo']}
+- 포함할 키워드: {', '.join(keywords) if keywords else '없음'}.
+- 사용자 입력 기분: {personal_line if personal_line.strip() else '없음'}. 가사에 사용자의 입력 기분이 반영되어야함.
 - 감정 강도: 기쁨 {joy}%, 에너지 {energy}%
-- 라임 수준: 보통
-- 시점: 2인칭(너) 또는 1인칭 혼용 가능
 - 금지: 공격적/혐오/차별 표현 금지, 특정인 실명 언급 금지
-Output: 가사만 출력 (설명/해설 없이)
+
+형식:
+1. 노래 제목 (예: "'{mbti}를 위한 선선한 여름밤의 사유'")
+2. (Verse 1) … 가사 …
+3. (Chorus) … 가사 …
+4. (Verse 2) … 가사 …
+5. (Bridge) … 가사 …
+6. (Outro) … 가사 …
+
+마지막에 "가사를 생성한 이유:"라는 문단을 두 줄로 작성해주세요.
+
+Output: 위 형식을 반드시 따라 작성해주세요.
 """
     return tpl.strip()
+
 
 def fallback_lyrics(mbti, keywords, personal_line, joy, energy):
     k = ", ".join(keywords) if keywords else "오늘"
@@ -305,6 +316,191 @@ def call_openai(prompt: str):
         top_p=0.9,
     )
     return resp.choices[0].message.content.strip()
+
+
+# -----------------------------
+# suno api 음악 생성
+# -----------------------------
+def get_suno_api_key() -> str:
+    try:
+        return st.secrets["suno"]["api_key"].strip()
+    except Exception:
+        return os.environ.get("SUNO_API_KEY", "").strip()
+    
+
+import re
+from textwrap import dedent
+
+def _extract_title_and_body(lyrics_text: str) -> tuple[str, str]:
+    """
+    네 LLM 출력 형식(1. 제목 / 2~6. 섹션)에서 제목과 본문만 뽑아 Suno에 넣기 좋게 정리.
+    """
+    title = "Untitled"
+    body  = lyrics_text.strip()
+
+    # 1) "1. 노래 제목" 라인 찾기 (여러 패턴 방어적으로)
+    m = re.search(r"^\s*1\.\s*(?:노래\s*제목|Title)\s*[:：]?\s*(.+)$", lyrics_text, flags=re.M|re.I)
+    if m:
+        title = m.group(1).strip().strip('"').strip("「」'“”")
+    else:
+        # 첫 줄이 제목처럼 보이면 사용
+        first = lyrics_text.strip().splitlines()[0]
+        if 3 <= len(first) <= 60:
+            title = first.strip().strip('"').strip("「」'“”")
+
+    # 2) "가사를 생성한 이유:" 이하 삭제 (Suno엔 불필요)
+    body = re.split(r"\n\s*가사를\s*생성한\s*이유\s*:\s*", body, flags=re.I)[0].strip()
+
+    # 3) 번호/헤더 제거(선택) + 섹션 헤더는 유지
+    #   - Verse/Chorus/Bridge/Outro 라벨은 남겨두면 보컬/구성 힌트가 됨
+    #   - "2. (Verse 1) ..." → "(Verse 1) ..." 로만 정리
+    body = re.sub(r"^\s*\d+\.\s*", "", body, flags=re.M)
+    return title or "Untitled", body
+
+def _mbti_audio_hints(mbti: str) -> dict:
+    style = mbti_style(mbti)
+    # 각 MBTI에 약간의 악기/무드 태그 추가 (원하면 자유롭게 가감)
+    add = {
+        "INFP":  {"instruments": ["soft piano","warm pad","vinyl hiss"], "mood": ["intimate","nostalgic"]},
+        "INFJ":  {"instruments": ["piano","strings"], "mood": ["warm","reflective"]},
+        "ENFP":  {"instruments": ["acoustic guitar","shaker"], "mood": ["bright","uplifting"]},
+        "ENTP":  {"instruments": ["clean electric guitar","synth lead"], "mood": ["playful","energetic"]},
+        "INTJ":  {"instruments": ["minimal synth","sub bass"], "mood": ["focused","cinematic"]},
+        "INTP":  {"instruments": ["ambient pad","plucks"], "mood": ["airy","thoughtful"]},
+        "ENTJ":  {"instruments": ["cinematic drums","piano"], "mood": ["confident","grand"]},
+        "ENFJ":  {"instruments": ["soft keys","light percussion"], "mood": ["gentle","hopeful"]},
+        "ISTJ":  {"instruments": ["acoustic guitar","upright bass"], "mood": ["steady","calm"]},
+        "ISFJ":  {"instruments": ["piano","strings"], "mood": ["comforting","warm"]},
+        "ESTJ":  {"instruments": ["rock drums","electric bass"], "mood": ["driving","bold"]},
+        "ESFJ":  {"instruments": ["city-pop keys","funk bass"], "mood": ["groovy","friendly"]},
+        "ISTP":  {"instruments": ["lofi kit","bass"], "mood": ["chill","cool"]},
+        "ISFP":  {"instruments": ["dreamy synth","reverb guitar"], "mood": ["tender","dreamy"]},
+        "ESTP":  {"instruments": ["edm drums","synth bass"], "mood": ["energetic","fun"]},
+        "ESFP":  {"instruments": ["dance kit","plucky synth"], "mood": ["party","vivid"]},
+    }.get(mbti, {"instruments": ["piano","pad"], "mood": ["balanced"]})
+
+    return {
+        "genre": style["genre"],
+        "bpm": style["tempo"],
+        "instruments": add["instruments"],
+        "mood": add["mood"],
+    }
+
+def _build_suno_prompt(
+    lyrics_text: str,
+    mbti: str,
+    keywords: list[str] | None = None,
+    joy: int = 50,
+    energy: int = 50
+) -> tuple[str, str]:
+
+    """
+    Suno로 보낼 'prompt' 문자열과 'title'을 구성해서 반환.
+    (Suno API payload의 prompt/title에 그대로 넣으면 됨)
+    """
+    title, body = _extract_title_and_body(lyrics_text)
+    hints = _mbti_audio_hints(mbti)
+    kwords = ", ".join(keywords or []) or "none"
+
+    prompt = dedent(f"""
+    [Song Title]
+    {title}
+
+    [Target Style]
+    Genre: {hints['genre']}
+    BPM: {hints['bpm']}
+    Instruments: {", ".join(hints['instruments'])}
+    Mood: {", ".join(hints['mood'])}
+    Keywords: {kwords}
+    Joy: {joy}%, Energy: {energy}%
+
+    [Structure]
+    Keep sections in singing flow (Verse/Chorus/Bridge/Outro).
+    Keep melody and harmony cohesive with the lyrics mood and BPM.
+    Simple, memorable topline; avoid excessive runs.
+
+    [Vocal]
+    Pop/indie-friendly lead vocal; natural phrasing; light reverb.
+    Korean lyrics; clear diction; avoid explicit content.
+
+    [Mixing]
+    Balanced mix; vocal forward but not harsh; gentle compression; soft limiter.
+
+    [Lyrics]
+    {body}
+    """).strip()
+
+    return prompt, title
+
+
+def generate_music_with_suno(lyrics: str, mbti: str, title: str = "") -> dict:
+    """
+    Suno API로 곡 생성 → taskId 폴링 → 재생 가능한 URL 반환.
+    return 예시: {"stream_url": "...", "audio_url": "...", "cover": "..."}
+    """
+    api_key = get_suno_api_key()
+    if not api_key:
+        raise RuntimeError("SUNO_API_KEY 가 설정되어 있지 않습니다. secrets.toml의 [suno].api_key 를 확인하세요.")
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    prompt = _build_suno_prompt(lyrics, mbti)
+    payload = {
+        "model": "V4_5", 
+        # 최소 파라미터 (문서 기준)
+        "prompt": prompt,
+        "title": title or f"{mbti} Song",
+        # 태그에는 장르 위주로
+        "tags": mbti_style(mbti)["genre"],
+        # 커스텀 모드(가사/스타일 반영용)와 보컬 포함 기본값
+        "customMode": True,
+        "instrumental": False,
+        "callBackUrl": "https://example.com/callback"  # 더미 URL
+
+
+    }
+
+    # 1) 생성 요청
+    r = requests.post("https://api.sunoapi.org/api/v1/generate", headers=headers, json=payload, timeout=30)
+    r.raise_for_status()
+    j = r.json()
+    if j.get("code") != 200 or "data" not in j or "taskId" not in j["data"]:
+        raise RuntimeError(f"Suno generate 응답 비정상: {j}")
+    task_id = j["data"]["taskId"]
+
+    # 2) 상태 폴링 (스트리밍 URL이 보통 더 빨리 준비됨)
+    stream_url, audio_url, cover = None, None, None
+    for _ in range(40):  # 최대 약 2분 폴링(2s * 60)
+        time.sleep(2)
+        q = requests.get(
+            "https://api.sunoapi.org/api/v1/generate/record-info",
+            headers=headers,
+            params={"taskId": task_id},
+            timeout=20
+        )
+        if q.status_code != 200:
+            continue
+        info = q.json()
+        data = (info or {}).get("data", {})
+        status = data.get("status", "")
+        resp = (data.get("response") or {})
+        items = (resp.get("sunoData") or [])  # 여러 트랙이 올 수 있음
+
+        # URL 추출
+        for it in items:
+            stream_url = stream_url or it.get("streamAudioUrl")
+            audio_url = audio_url or it.get("audioUrl")
+            cover      = cover or it.get("imageUrl")
+
+        if status in ("FIRST_SUCCESS", "SUCCESS") and (stream_url or audio_url):
+            break
+        if status in ("CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED", "SENSITIVE_WORD_ERROR"):
+            raise RuntimeError(f"Suno 작업 실패: status={status}, info={info}")
+
+    if not (stream_url or audio_url):
+        raise TimeoutError("Suno API가 제시간에 트랙 URL을 반환하지 못했습니다.")
+
+    return {"stream_url": stream_url, "audio_url": audio_url, "cover": cover}
+
 
 
 # -----------------------------
@@ -435,16 +631,60 @@ if mode == "가사 생성":
         st.subheader("가사")
         st.text_area("생성된 가사", st.session_state["lyrics"], height=220)
 
-        st.subheader("Music (Demo)")
-        if not st.session_state["played"]:
-            if st.button("▶️ 음악 재생"):
+        # st.subheader("Music (Demo)")
+        # if not st.session_state["played"]:
+        #     if st.button("▶️ 음악 재생"):
+        #         st.session_state["button_clicks"] += 1
+        #         st.session_state["played"] = True
+        #         st.rerun()
+        # else:
+        #     wav_bytes = generate_sine_music_bytes(duration_sec=8, base_freq=mbti_to_freq(mbti), tremolo=0.25)
+        #     st.audio(wav_bytes, format="audio/wav")
+        #     st.caption("※ 재생 버튼 클릭이 데이터로 기록됩니다.")
+        st.subheader("Music (Suno AI)")
+        if not st.session_state.get("played"):
+            if st.button("▶️ 음악 생성 & 재생", type="primary"):
                 st.session_state["button_clicks"] += 1
-                st.session_state["played"] = True
-                st.rerun()
+                with st.spinner("Suno AI로 음악 생성 중... (스트리밍 준비까지 ~40초 예상)"):
+                    try:
+                        out = generate_music_with_suno(
+                            lyrics=st.session_state["lyrics"],
+                            mbti=mbti,
+                            title=f"{mbti} - {mbti_style(mbti)['genre']}"
+                        )
+                        # 스트리밍이 먼저면 그걸 재생, 없으면 mp3
+                        st.session_state["audio_url"] = out.get("stream_url") or out.get("audio_url")
+                        st.session_state["cover_url"] = out.get("cover")
+                        st.session_state["played"] = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Suno API 실패: {e}")
         else:
-            wav_bytes = generate_sine_music_bytes(duration_sec=8, base_freq=mbti_to_freq(mbti), tremolo=0.25)
-            st.audio(wav_bytes, format="audio/wav")
-            st.caption("※ 재생 버튼 클릭이 데이터로 기록됩니다.")
+            # 준비된 URL 재생
+            if url := st.session_state.get("audio_url"):
+                st.audio(url)
+                if st.session_state.get("cover_url"):
+                    st.image(st.session_state["cover_url"], caption="Cover Art", use_container_width=True)
+                st.caption("※ Suno AI가 생성한 음악입니다.")
+                # 생성 다운로드
+                # 🔽 MP3 다운로드 버튼 (audio_url로 바로 바이트 받아서 내려줌)
+                try:
+                    if "audio_bytes" not in st.session_state:
+                        r = requests.get(url, timeout=120)
+                        r.raise_for_status()
+                        st.session_state["audio_bytes"] = r.content
+                    fname = f"{st.session_state.get('song_title','MBTI_Song')}.mp3".replace("/", "_")
+                    st.download_button("💾 MP3 다운로드",
+                                    data=st.session_state["audio_bytes"],
+                                    file_name=fname,
+                                    mime="audio/mpeg")
+                except Exception:
+                    # 아직 mp3가 준비 전이거나 네트워크 이슈면 링크라도 제공
+                    st.link_button("🔗 새 탭에서 열기", url)
+
+            else:
+                st.warning("아직 음악 URL이 없습니다.")
+
 
         # 피드백 수집
         user_id     = st.text_input("닉네임(선택)", value="")
@@ -543,7 +783,7 @@ if mode == "가사 생성":
 elif mode == "대시보드":
     st.header("Dashboard (Live from Google Sheets)")
     try:
-        records = sheet.get_all_records(expected_headers=HEADERS)
+        records = sheet.get_all_records()  # expected_headers 제거
         if not records:
             st.info("아직 데이터가 없습니다.")
         else:
