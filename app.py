@@ -118,24 +118,45 @@ MBTI_OPTIONS = [
     "ISTP","ISFP","ESTP","ESFP",
 ]
 
+# MBTI_STYLE_MAP = {
+#     "INFP": {"genre": "lofi ballad", "tempo": 70},
+#     "INFJ": {"genre": "warm ballad", "tempo": 72},
+#     "ENFP": {"genre": "bright pop", "tempo": 112},
+#     "ENTP": {"genre": "indie pop", "tempo": 118},
+#     "INTJ": {"genre": "minimal electronic", "tempo": 90},
+#     "INTP": {"genre": "ambient electronic", "tempo": 85},
+#     "ENTJ": {"genre": "cinematic pop", "tempo": 110},
+#     "ENFJ": {"genre": "soft pop", "tempo": 100},
+#     "ISTJ": {"genre": "acoustic folk", "tempo": 85},
+#     "ISFJ": {"genre": "piano ballad", "tempo": 78},
+#     "ESTJ": {"genre": "rock pop", "tempo": 120},
+#     "ESFJ": {"genre": "city pop", "tempo": 108},
+#     "ISTP": {"genre": "chill hop", "tempo": 88},
+#     "ISFP": {"genre": "dream pop", "tempo": 95},
+#     "ESTP": {"genre": "electro pop", "tempo": 122},
+#     "ESFP": {"genre": "dance pop", "tempo": 125},
+# }
+
+
 MBTI_STYLE_MAP = {
-    "INFP": {"genre": "lofi ballad", "tempo": 70},
-    "INFJ": {"genre": "warm ballad", "tempo": 72},
-    "ENFP": {"genre": "bright pop", "tempo": 112},
-    "ENTP": {"genre": "indie pop", "tempo": 118},
-    "INTJ": {"genre": "minimal electronic", "tempo": 90},
-    "INTP": {"genre": "ambient electronic", "tempo": 85},
-    "ENTJ": {"genre": "cinematic pop", "tempo": 110},
-    "ENFJ": {"genre": "soft pop", "tempo": 100},
-    "ISTJ": {"genre": "acoustic folk", "tempo": 85},
-    "ISFJ": {"genre": "piano ballad", "tempo": 78},
-    "ESTJ": {"genre": "rock pop", "tempo": 120},
-    "ESFJ": {"genre": "city pop", "tempo": 108},
-    "ISTP": {"genre": "chill hop", "tempo": 88},
-    "ISFP": {"genre": "dream pop", "tempo": 95},
-    "ESTP": {"genre": "electro pop", "tempo": 122},
-    "ESFP": {"genre": "dance pop", "tempo": 125},
+    "INFP": {"genre": "indie folk", "tempo": 72},           # 감성적, 내면적 → 어쿠스틱/포크
+    "INFJ": {"genre": "neo-classical", "tempo": 68},        # 따뜻하고 사색적 → 피아노/현악 기반
+    "ENFP": {"genre": "funk pop", "tempo": 114},            # 밝고 에너지 넘침 → 펑키한 팝
+    "ENTP": {"genre": "alternative rock", "tempo": 120},    # 장난기, 도전적 → 록 기반
+    "INTJ": {"genre": "cinematic electronic", "tempo": 92}, # 전략적, 몰입적 → 영화음악 스타일
+    "INTP": {"genre": "ambient techno", "tempo": 88},       # 추상적, 탐구적 → 몽환적 일렉트로닉
+    "ENTJ": {"genre": "orchestral rock", "tempo": 108},     # 리더십, 강렬함 → 오케스트라+록
+    "ENFJ": {"genre": "soul R&B", "tempo": 96},             # 따뜻하고 포용적 → 소울풀한 R&B
+    "ISTJ": {"genre": "classic jazz", "tempo": 82},         # 전통, 안정감 → 스윙/재즈
+    "ISFJ": {"genre": "acoustic ballad", "tempo": 76},      # 헌신적, 따뜻함 → 발라드
+    "ESTJ": {"genre": "hard rock", "tempo": 124},           # 추진력, 강렬함 → 하드 록
+    "ESFJ": {"genre": "retro city pop", "tempo": 110},      # 사교적, 레트로 감성 → 시티팝
+    "ISTP": {"genre": "lofi hip hop", "tempo": 90},         # 즉흥적, 실험적 → 로파이 힙합
+    "ISFP": {"genre": "dream pop", "tempo": 92},            # 예술적, 감각적 → 드림팝
+    "ESTP": {"genre": "EDM house", "tempo": 126},           # 모험적, 파티 분위기 → 하우스 EDM
+    "ESFP": {"genre": "latin pop", "tempo": 120},           # 에너지, 사교적 → 라틴 팝/댄스
 }
+
 
 def mbti_style(mbti: str):
     return MBTI_STYLE_MAP.get(mbti, {"genre": "pop", "tempo": 100})
@@ -689,9 +710,6 @@ with st.sidebar:
 # -----------------------------
 
 if mode == "가사 생성":
-
-    st.write("DEBUG query params:", qp)
-    st.write("DEBUG audio_url:", audio_url)
 
     col1, col2 = st.columns(2)
     with col1:
