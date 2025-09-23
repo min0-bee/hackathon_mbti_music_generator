@@ -10,7 +10,7 @@ import streamlit as st
 import gspread
 from datetime import datetime
 import pytz 
-import urllib.parse as _u
+from urllib.parse import urlencode, quote
 from textwrap import dedent
 import requests, time, json
 
@@ -24,6 +24,42 @@ try:
     OPENAI_AVAILABLE = True
 except Exception:
     OPENAI_AVAILABLE = False
+
+# --- Query Params helper ---
+def get_query_params():
+    try:
+        return st.query_params  # 최신 Streamlit
+    except Exception:
+        return st.experimental_get_query_params()
+
+def get_query_param(qp, key: str) -> str:
+    val = qp.get(key)
+    if not val:
+        return ""
+    if isinstance(val, list):
+        return val[0]
+    return val
+
+qp = get_query_params()
+
+audio_url = get_query_param(qp, "audio")
+cover_url = get_query_param(qp, "cover")
+title     = get_query_param(qp, "title")
+mbti      = get_query_param(qp, "mbti")
+
+
+
+
+# 공유된 트랙이 있으면 바로 보여주기
+if audio_url:
+    st.header("🎶 공유된 트랙")
+    if title or mbti:
+        st.caption(f"{title or 'Shared Song'} {('• ' + mbti) if mbti else ''}")
+    st.audio(audio_url)
+    if cover_url:
+        st.image(cover_url, caption="Cover Art", use_container_width=True)
+    st.info("이 링크는 생성된 음악의 임시 URL을 포함합니다. 시간이 지나면 만료될 수 있어요.")
+    st.stop()   # ← 여기서 멈추면 첫 화면(가사 생성)으로 안 내려감
 
 
 # -----------------------------
@@ -192,7 +228,7 @@ def render_share_ui(user_id: str):
     share_url = build_share_link(user_id)
     st.session_state["sharing"] = True  # 로그용 플래그
 
-    st.success("추천 링크가 준비됐어요. 복사해서 친구에게 보내보세요!")
+    st.success("내 음악의 링크가 준비됐어요. 복사해서 친구에게 보내보세요!")
     st.text_input("추천 링크", value=share_url, disabled=True)
 
     # Copy / WebShare (모바일) 둘 다 지원하는 작은 위젯
@@ -228,11 +264,80 @@ def render_share_ui(user_id: str):
     st.components.v1.html(html, height=60)
 
 
-def build_share_link(user_id: str = "") -> str:
-    # 배포 주소 (끝 슬래시는 제거)
+def build_share_link(user_id: str = "", audio_url: str = "", cover_url: str = "",
+                     title: str = "", mbti: str = "") -> str:
     base = "https://hackathonmbtimusicgenerator.streamlit.app"
-    ref = (user_id or "anon").strip()
-    return f"{base}?ref={_u.quote(ref)}"
+    params = {"ref": (user_id or "anon")}
+    if audio_url:
+        params["audio"] = audio_url
+    if cover_url:
+        params["cover"] = cover_url
+    if title:
+        params["title"] = title
+    if mbti:
+        params["mbti"] = mbti
+    # 안전 인코딩
+    return f"{base}?{urlencode(params, doseq=False, safe=':/')}"
+
+
+def render_mobile_file_share(audio_url: str, filename: str = "MBTI_Song.mp3"):
+    html = f"""
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+      <button id="shareFileBtn" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;cursor:pointer;">
+        🎁 파일로 공유
+      </button>
+      <span id="shareMsg" style="margin-left:8px;color:gray;"></span>
+    </div>
+    <script>
+    (function() {{
+      const btn = document.getElementById('shareFileBtn');
+      const msg = document.getElementById('shareMsg');
+      const audioUrl = {audio_url!r};
+      const fname = {filename!r};
+
+      async function shareFile() {{
+        try {{
+          // 우선 파일 공유 지원 여부 체크
+          if (!('share' in navigator)) throw new Error('no share');
+          // 파일로 시도
+          const resp = await fetch(audioUrl, {{mode: 'cors'}});
+          const blob = await resp.blob();
+          const file = new File([blob], fname, {{ type: 'audio/mpeg' }});
+
+          if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
+            await navigator.share({{
+              files: [file],
+              title: 'MBTI Song',
+              text: '내가 만든 MBTI 노래 들어봐! 🎶'
+            }});
+            msg.textContent = "공유 완료!";
+          }} else {{
+            // 파일 공유 미지원 → 링크 공유로 폴백
+            await navigator.share({{
+              title: 'MBTI Song',
+              text: '내가 만든 MBTI 노래 들어봐! 🎶',
+              url: audioUrl
+            }});
+            msg.textContent = "링크로 공유했어요.";
+          }}
+        }} catch (e) {{
+          // Web Share API 전체 미지원 → 링크 새탭 + 클립보드 복사 시도
+          try {{
+            await navigator.clipboard.writeText(audioUrl);
+            msg.textContent = "링크를 클립보드에 복사했어요.";
+          }} catch(_) {{
+            msg.textContent = "이 브라우저에선 파일 공유가 어려워요. 링크를 열게요.";
+          }}
+          window.open(audioUrl, "_blank");
+        }}
+      }}
+
+      btn.addEventListener('click', shareFile);
+    }})();
+    </script>
+    """
+    st.components.v1.html(html, height=60)
+
 
 
 # -----------------------------
@@ -585,6 +690,8 @@ with st.sidebar:
 
 if mode == "가사 생성":
 
+    st.write("DEBUG query params:", qp)
+    st.write("DEBUG audio_url:", audio_url)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -736,6 +843,7 @@ if mode == "가사 생성":
                     st.session_state["downloaded"] = True
                     # 사이즈 기록(있으면)
                     st.session_state["audio_size_bytes"] = len(st.session_state.get("audio_bytes", b"") or b"")
+
             else:
                 st.warning("아직 음악 URL이 없습니다.")
 
@@ -804,48 +912,101 @@ if mode == "가사 생성":
                 st.session_state["played"] = False
             except Exception as e:
                 st.error(f"저장 실패: {e}")
-
+        #공유버튼
         if st.button("🔗 공유하기"):
-            now_kst = datetime.now(KST)
-            start = st.session_state["start_time"]
-            if getattr(start, "tzinfo", None) is None:
-                start = KST.localize(start)
-            st.session_state["sharing"] = True
-            payload = {
-                "user_id": user_id.strip(),
-                "mbti": mbti,
-                "keywords": keywords,
-                "joy": int(joy),
-                "energy": int(energy),
-                "personal_line": personal_line.strip(),
-                "satisfaction": int(satisfaction),
-                "mbti_match": bool(mbti_match),
-                "played": bool(st.session_state["played"]),
-                "lyrics_lines": len(st.session_state["lyrics"].splitlines()),
-                "lyrics": st.session_state["lyrics"],
-                "bo_exhaust": int(bo_exhaust),
-                "bo_cynicism": int(bo_cynic),
-                "bo_burden": int(bo_burden),
-                "bo_anger": int(bo_anger),
-                "bo_fatigue": int(bo_fatigue),
-                "bo_sleep": int(bo_sleep),
-                "burnout_score": bo_score,
-                "burnout_level": bo_level,
-                "would_return": bool(would_return),
-                "page_view_time": int((now_kst - start).total_seconds()),
-                "button_clicks": st.session_state["button_clicks"],
-                "revisit": st.session_state["visit_count"] > 1,
-                "sharing": True,
-                "session_time": session_time,
-                # --- 다운로드 추적 추가 ---
-                "downloaded": bool(st.session_state.get("downloaded", False)),
-                "download_clicks": int(st.session_state.get("download_clicks", 0)),
-                "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
-                "vocal_gender": vocal_gender,
-            }
+            # 1) 곡 정보 꺼내기 (없으면 안내)
+            audio_url = st.session_state.get("audio_url", "")
+            cover_url = st.session_state.get("cover_url", "")
+            song_title = st.session_state.get("song_title", f"{mbti} - {mbti_style(mbti)['genre']}")
 
-            append_row_to_sheet(sheet, payload)
-            render_share_ui(user_id)
+            if not audio_url:
+                st.warning("먼저 음악을 생성해 주세요. (링크에는 음악 URL이 포함되어야 해요)")
+            else:
+                # 2) 공유 링크 만들기 (음악/커버/제목/MBTI 포함)
+                share_url = build_share_link(
+                    user_id=user_id.strip(),
+                    audio_url=audio_url,
+                    cover_url=cover_url,
+                    title=song_title,
+                    mbti=mbti
+                )
+
+                # 3) 로그 저장 (네가 쓰던 payload 그대로)
+                now_kst = datetime.now(KST)
+                start = st.session_state["start_time"]
+                if getattr(start, "tzinfo", None) is None:
+                    start = KST.localize(start)
+
+                payload = {
+                    "user_id": user_id.strip(),
+                    "mbti": mbti,
+                    "keywords": keywords,
+                    "joy": int(joy),
+                    "energy": int(energy),
+                    "personal_line": personal_line.strip(),
+                    "satisfaction": int(satisfaction),
+                    "mbti_match": bool(mbti_match),
+                    "played": bool(st.session_state["played"]),
+                    "lyrics_lines": len(st.session_state["lyrics"].splitlines()),
+                    "lyrics": st.session_state["lyrics"],
+                    "bo_exhaust": int(bo_exhaust),
+                    "bo_cynicism": int(bo_cynic),
+                    "bo_burden": int(bo_burden),
+                    "bo_anger": int(bo_anger),
+                    "bo_fatigue": int(bo_fatigue),
+                    "bo_sleep": int(bo_sleep),
+                    "burnout_score": int(bo_score),
+                    "burnout_level": burnout_level(bo_score, max_score=30),
+                    "would_return": bool(would_return),
+                    "page_view_time": int((now_kst - start).total_seconds()),
+                    "button_clicks": st.session_state["button_clicks"],
+                    "revisit": st.session_state["visit_count"] > 1,
+                    "sharing": True,
+                    "session_time": session_time,
+                    "downloaded": bool(st.session_state.get("downloaded", False)),
+                    "download_clicks": int(st.session_state.get("download_clicks", 0)),
+                    "audio_size_bytes": int(st.session_state.get("audio_size_bytes", 0)),
+                    "vocal_gender": vocal_gender,
+                }
+                append_row_to_sheet(sheet, payload)
+
+                # 4) 공유 UI (링크만 표시 / 복사 & 시스템 공유 버튼)
+                html = f"""
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input id="shareInput" value="{share_url}" style="min-width:260px;width:100%;padding:6px 8px;" readonly/>
+                <button id="copyBtn">📋 복사</button>
+                <button id="shareBtn">🔗 공유</button>
+                <span id="msg" style="margin-left:8px;color:gray;"></span>
+                </div>
+                <script>
+                const url = {share_url!r};
+                const msg = document.getElementById('msg');
+                const input = document.getElementById('shareInput');
+                document.getElementById('copyBtn').onclick = async () => {{
+                    try {{
+                    await navigator.clipboard.writeText(url);
+                    msg.textContent = "링크를 복사했어요!";
+                    }} catch (e) {{
+                    input.select(); document.execCommand('copy');
+                    msg.textContent = "복사됨(대체)";
+                    }}
+                }};
+                const shareBtn = document.getElementById('shareBtn');
+                if (!navigator.share) {{
+                    shareBtn.style.display = 'none';
+                }} else {{
+                    shareBtn.onclick = async () => {{
+                    try {{
+                        await navigator.share({{ title: "MBTI Song", url }});
+                    }} catch (e) {{}}
+                    }};
+                }}
+                </script>
+                """
+                st.success("링크가 준비됐어요! 복사해서 보내거나, 모바일의 공유 버튼을 눌러보세요.")
+                st.components.v1.html(html, height=80)
+
+
 
 
 
