@@ -90,4 +90,6 @@ page_view_time, button_clicks, revisit, sharing, session_time, "downloaded","dow
 - → 시트에서 서비스계정 이메일에 편집 권한 공유     
 - → 시트 이름/워크시트(sheet1) 확인     
 
-
+<⏰ 타임존(KST) 이슈>
+- **증상**: 시트/대시보드 시간이 9시간 어긋나 보임(UTC 저장), 차트 정렬이 이상함(naive datetime 섞임).
+- **해결**: 모든 타임스탬프는 KST(Asia/Seoul) 로 저장/표시.
