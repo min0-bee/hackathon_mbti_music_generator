@@ -1,6 +1,6 @@
 # 🎶 MBTI Song Generator (Streamlit)
 [🚀🚀🚀🚀 Live Demo : 클릭하면 데모 사이트로 연결됩니다!🚀🚀🚀🚀](https://hackathonmbtimusicgenerator.streamlit.app/)            
-![alt text](image.png)     
+![alt text](image/image.png)     
 
 - MBTI + 키워드 + 한 줄 메모 → 한국어 가사 생성 → Suno AI(V4_5, 보컬 포함)로 음악 생성 → 스트리밍 & MP3
 다운로드
@@ -93,3 +93,14 @@ page_view_time, button_clicks, revisit, sharing, session_time, "downloaded","dow
 <⏰ 타임존(KST) 이슈>
 - **증상**: 시트/대시보드 시간이 9시간 어긋나 보임(UTC 저장), 차트 정렬이 이상함(naive datetime 섞임).
 - **해결**: 모든 타임스탬프는 KST(Asia/Seoul) 로 저장/표시.
+
+
+### PPT
+![alt text](image/1.png)
+![alt text](image/2.png)
+![alt text](image/3.png)
+![alt text](image/4.png)
+![alt text](image/5.png)
+![alt text](image/6.png)
+![alt text](image/7.png)
+![alt text](image/8.png)
