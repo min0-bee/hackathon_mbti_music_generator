@@ -1,5 +1,5 @@
 # 🎶 MBTI Song Generator (Streamlit)
-
+[🚀 Live Demo](https://hackathonmbtimusicgenerator.streamlit.app/)
 ![alt text](image.png)
 
 - MBTI + 키워드 + 한 줄 메모 → 한국어 가사 생성 → Suno AI(V4_5, 보컬 포함)로 음악 생성 → 스트리밍 & MP3
